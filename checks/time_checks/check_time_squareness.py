@@ -6,7 +6,7 @@ import re
 import numpy as np
 import cftime
 from compliance_checker.base import BaseCheck, TestCtx
-from checks.time_checks.time_constants import FREQ_INC, AVERAGE_CORRECTION_FREQ
+from checks.time_checks.time_constants import FREQ_INC, AVERAGE_CORRECTION_FREQ, TOKEN_IS_MIDPOINT_FREQ
 from checks.utils import add_time_increment
 
 NDECIMALS = 6
@@ -231,23 +231,31 @@ def check_time_squareness(
     theo = np.zeros(actual.size, dtype=float)
     variable_step = inc_unit in ("months", "years")
 
+    # See TOKEN_IS_MIDPOINT_FREQ (time_constants.py) / cc-plugin-wcrp#80:
+    # for these frequencies start_boundary, parsed from the filename
+    # token, is already the true cell midpoint -- it must be used as
+    # theo[0] directly, not re-derived as if it were a period start.
+    token_is_midpoint = freq_id in TOKEN_IS_MIDPOINT_FREQ
+
     if not variable_step:
         d0 = start_boundary
         d1 = add_time_increment(d0, inc_val, inc_unit, cal)
         n0 = float(cftime.date2num(d0, units=units, calendar=cal))
         n1 = float(cftime.date2num(d1, units=units, calendar=cal))
         step_num = n1 - n0
-        first = (n0 + n1) / 2.0 if use_midpoint else n0
+        if use_midpoint and not token_is_midpoint:
+            first = (n0 + n1) / 2.0
+        else:
+            first = n0
         theo = first + np.arange(actual.size, dtype=float) * float(step_num)
     else:
         cur = start_boundary
         for i in range(actual.size):
             nxt = add_time_increment(cur, inc_val, inc_unit, cal)
-            theo[i] = (
-                _midpoint_num(cur, nxt, units, cal)
-                if use_midpoint
-                else float(cftime.date2num(cur, units=units, calendar=cal))
-            )
+            if use_midpoint and not token_is_midpoint:
+                theo[i] = _midpoint_num(cur, nxt, units, cal)
+            else:
+                theo[i] = float(cftime.date2num(cur, units=units, calendar=cal))
             cur = nxt
 
     # Compare after rounding to NDECIMALS places. See _round docstring

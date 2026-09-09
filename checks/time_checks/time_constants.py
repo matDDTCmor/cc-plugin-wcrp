@@ -15,6 +15,27 @@ AVERAGE_CORRECTION_FREQ = [
 ]
 
 
+# Frequencies where the filename token itself already carries the true
+# cell midpoint at full precision, per the CMIP7 Guidance's "first and
+# last time coordinate" rule (cc-plugin-wcrp#80):
+#   - 1hr/3hr/6hr tokens include HHMM, e.g. "...185001010300-..." for a
+#     6hr file is 03:00, the genuine midpoint of the 00:00-06:00 cell,
+#     not a truncated/defaulted value.
+#   - dec tokens are a specific calendar year (e.g. "1855" for the
+#     1850-1859 decade), which per the Guidance names the midpoint
+#     year directly, not the decade-start year.
+# For these, start_boundary IS theo[0]; no further midpoint correction
+# should be applied on top of it.
+#
+# day/mon/yr/yrPt/1hrCM/sem are deliberately excluded: their filename
+# tokens are coarser than the period itself (mon: YYYYMM has no day;
+# day: YYYYMMDD has no hour), so _parse_filename_start's own defaulting
+# (missing fields -> 1/0) reconstructs the genuine period *start*, not
+# the midpoint -- the existing "start + half increment" derivation is
+# correct for these and must not be bypassed.
+TOKEN_IS_MIDPOINT_FREQ = {"1hr", "3hr", "6hr", "dec"}
+
+
 # (table_id, frequency) -> (value, unit)
 
 FREQ_INC = {
