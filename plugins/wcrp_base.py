@@ -19,6 +19,76 @@ if not hasattr(cfutil, "get_geophysical_variables"):
     from compliance_checker import cfutil
 
 
+# compliance_checker's own CF1_6Check.check_geographic_region() crashes
+# instead of failing gracefully when a labeled-region variable carries
+# multiple region names as a 2D char array (one row per name) -- e.g.
+# ocean-basin-decomposed diagnostics (hfbasin, htovgyre, sltovgyre, ...).
+# The upstream implementation only handles the single-region (1D) case.
+# Patched here at import time, same as the cfutil shim above.
+from compliance_checker.cf import cf_1_6 as _cf_1_6
+
+_CF_6_1_REGION_LIST = [
+    "africa", "antarctica", "arabian_sea", "aral_sea", "arctic_ocean",
+    "asia", "atlantic_ocean", "australia", "baltic_sea", "barents_opening",
+    "barents_sea", "beaufort_sea", "bellingshausen_sea", "bering_sea",
+    "bering_strait", "black_sea", "canadian_archipelago", "caribbean_sea",
+    "caspian_sea", "central_america", "chukchi_sea",
+    "contiguous_united_states", "denmark_strait", "drake_passage",
+    "east_china_sea", "english_channel", "eurasia", "europe",
+    "faroe_scotland_channel", "florida_bahamas_strait", "fram_strait",
+    "global", "global_land", "global_ocean", "great_lakes", "greenland",
+    "gulf_of_alaska", "gulf_of_mexico", "hudson_bay",
+    "iceland_faroe_channel", "indian_ocean", "indonesian_throughflow",
+    "indo_pacific_ocean", "irish_sea", "lake_baykal", "lake_chad",
+    "lake_malawi", "lake_tanganyika", "lake_victoria", "mediterranean_sea",
+    "mozambique_channel", "north_america", "north_sea", "norwegian_sea",
+    "pacific_equatorial_undercurrent", "pacific_ocean", "persian_gulf",
+    "red_sea", "ross_sea", "sea_of_japan", "sea_of_okhotsk",
+    "south_america", "south_china_sea", "southern_ocean",
+    "taiwan_luzon_straits", "weddell_sea", "windward_passage", "yellow_sea",
+]
+
+
+def _region_label_names(region):
+    """Decode a region-label char array into a list of name strings.
+    Handles both the single-region case (1D array) and labeled axes
+    with multiple regions (2D array, one name per row).
+    """
+    if region.ndim <= 1:
+        return ["".join(region.astype(str)).strip()]
+    return ["".join(row.astype(str)).strip() for row in region]
+
+
+def _patched_check_geographic_region(self, ds):
+    ret_val = []
+    for var in ds.get_variables_by_attributes(standard_name="region"):
+        valid_region = TestCtx(BaseCheck.MEDIUM, self.section_titles["6.1"])
+        region = var[:]
+        if np.ma.isMA(region):
+            region = region.data
+        try:
+            names = _region_label_names(region)
+        except Exception:
+            valid_region.add_failure(
+                "6.1.1 could not evaluate region label(s) for '{}' "
+                "(unsupported array shape)".format(var.name)
+            )
+            ret_val.append(valid_region.to_result())
+            continue
+        for name in names:
+            valid_region.assert_true(
+                name.lower() in _CF_6_1_REGION_LIST,
+                "6.1.1 '{}' specified by '{}' is not a valid region".format(
+                    name, var.name
+                ),
+            )
+        ret_val.append(valid_region.to_result())
+    return ret_val
+
+
+_cf_1_6.CF1_6Check.check_geographic_region = _patched_check_geographic_region
+
+
 FORMULA_TERM_PATTERN = re.compile(r"(\w+)\s*:\s*([^\s]+)")
 
 # --- Esgvoc universe import ---
